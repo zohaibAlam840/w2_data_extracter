@@ -145,6 +145,13 @@ def extract_text_from_svg_fields(image):
     
     return extracted_data
 
+
+@app.post("/")
+@app.get("/")
+def message():
+    print('hello')  # This will print to the server logs
+    return {"message": "Hello, world!"}  # Return a JSON response
+
 @app.post("/extract")
 async def extract_w2_data(file: UploadFile = File(...)):
     try:

@@ -7,6 +7,7 @@ import numpy as np
 import requests
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 
 OCR_API_KEY = os.getenv('OCR_API_KEY', 'c2a2cadefc88957')
 OCR_API_URL = 'https://api.ocr.space/parse/image'
@@ -46,6 +47,14 @@ svg_mapped_fields = {
 }
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Or ["*"] to allow all origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 def resize_image(image, target_width, target_height):
     return image.resize((target_width, target_height), Image.BILINEAR)

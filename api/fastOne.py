@@ -5,7 +5,7 @@ import re
 from PIL import Image, ImageChops
 import numpy as np
 import requests
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException,Form
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -48,17 +48,20 @@ svg_mapped_fields = {
 
 app = FastAPI()
 
+# CORS settings
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Or ["*"] to allow all origins
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# Utility function to resize the image
 def resize_image(image, target_width, target_height):
     return image.resize((target_width, target_height), Image.BILINEAR)
 
+# Utility function to trim whitespace from the image
 def trim_whitespace(image):
     bg = Image.new(image.mode, image.size, image.getpixel((0, 0)))
     diff = ImageChops.difference(image, bg)
@@ -68,6 +71,7 @@ def trim_whitespace(image):
         return image.crop(bbox)
     return image
 
+# Function to send image to OCR API
 def ocr_space_request(cropped_img):
     buffer = io.BytesIO()
     cropped_img.save(buffer, format="PNG")
@@ -92,85 +96,82 @@ def ocr_space_request(cropped_img):
     except requests.exceptions.RequestException as e:
         raise HTTPException(status_code=500, detail=f"OCR API error: {e}")
 
+# Cleaning the extracted text
 def clean_extracted_text(field_name, extracted_text):
-    # Remove leading/trailing spaces and unwanted characters
     extracted_text = extracted_text.strip()
-
-    # Remove specific unwanted phrases
     unwanted_phrases = ["For Official Use Only", "VOID"]
     for phrase in unwanted_phrases:
         extracted_text = extracted_text.replace(phrase, "")
-
-    # Remove the field name from the extracted text (case insensitive)
     extracted_text = re.sub(re.escape(field_name), '', extracted_text, flags=re.IGNORECASE)
 
-    # Define which fields are expected to contain monetary values
     money_fields = [
-        "Wages, tips, other compensation",
-        "Federal income tax withheld",
-        "Social security wages",
-        "Social security tax withheld",
-        "Medical wages and tips",
-        "Medicare tax withheld",
-        "Social security tips",
-        "Allocated tips",
-        "Dependent care benefits"
+        "Wages, tips, other compensation", "Federal income tax withheld",
+        "Social security wages", "Social security tax withheld",
+        "Medical wages and tips", "Medicare tax withheld"
     ]
 
-    # If the field is supposed to contain money, extract only the dollar amount using regex
     if any(money_field in field_name for money_field in money_fields):
-        # Regex to find dollar amounts, e.g., "$170,000.00" or "$35,000"
         money_match = re.search(r'\$\d{1,3}(?:,\d{3})*(?:\.\d{2})?', extracted_text)
         if money_match:
             extracted_text = money_match.group(0)
 
-    # Remove common OCR artifacts like tabs, newlines, and extra spaces
     extracted_text = re.sub(r'\s+', ' ', extracted_text)
-
-    # Remove special characters except numbers, letters, and standard punctuation
     extracted_text = re.sub(r'[^\w\s\.\,\$\-]', '', extracted_text)
 
     return extracted_text.strip()
 
+# Function to post-process the extracted data
 def post_process_extracted_data(data):
     processed_data = {}
-    
     for field, value in data.items():
         cleaned_value = clean_extracted_text(field, value)
         processed_data[field] = cleaned_value
-    
     return processed_data
 
+# Function to extract text from SVG-mapped fields in the image
 def extract_text_from_svg_fields(image):
     extracted_data = {}
-    
     for field_name, coords in svg_mapped_fields.items():
         x, y, width, height = coords
         cropped_img = image.crop((x, y, x + width, y + height))
-        
         extracted_text = ocr_space_request(cropped_img)
         cleaned_text = clean_extracted_text(field_name, extracted_text)
         extracted_data[field_name] = cleaned_text
-    
     return extracted_data
 
-
-@app.post("/")
+# Health check endpoint
 @app.get("/")
 def message():
-    print('hello')  # This will print to the server logs
-    return {"message": "Hello, world!"}  # Return a JSON response
+    return {"message": "Hello, world!"}
 
+# Endpoint to extract data from uploaded image file
 @app.post("/extract")
 async def extract_w2_data(file: UploadFile = File(...)):
     try:
+        print(f"Received file: {file.filename}, content type: {file.content_type}")
+        if file.content_type not in ["image/png", "image/jpeg"]:
+            raise HTTPException(status_code=400, detail="Invalid file type. Please upload a PNG or JPEG image.")
+
         image = Image.open(file.file).convert("RGB")
-        
         trimmed_image = trim_whitespace(image)
         resized_image = resize_image(trimmed_image, TEMPLATE_WIDTH, TEMPLATE_HEIGHT)
         extracted_data = extract_text_from_svg_fields(resized_image)
-        
-        # Post-process the extracted data to remove field names
+        cleaned_data = post_process_extracted_data(extracted_data)
+
+        return JSONResponse(content={"extracted_data": cleaned_data})
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing the image: {e}")
+
+# Endpoint to handle base64-encoded images (optional)
+@app.post("/extract_base64")
+async def extract_w2_data_base64(base64_image: str = Form(...)):
+    try:
+        image_data = re.sub('^data:image/.+;base64,', '', base64_image)
+        image = Image.open(io.BytesIO(base64.b64decode(image_data))).convert("RGB")
+        trimmed_image = trim_whitespace(image)
+        resized_image = resize_image(trimmed_image, TEMPLATE_WIDTH, TEMPLATE_HEIGHT)
+        extracted_data = extract_text_from_svg_fields(resized_image)
         cleaned_data = post_process_extracted_data(extracted_data)
 
         return JSONResponse(content={"extracted_data": cleaned_data})

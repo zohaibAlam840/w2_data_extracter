@@ -5,7 +5,7 @@ import re
 from PIL import Image, ImageChops
 import numpy as np
 import requests
-from fastapi import FastAPI, UploadFile, File, HTTPException,Form
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -43,7 +43,6 @@ svg_mapped_fields = {
     '17 State income tax': (496.5, 514.5, 161, 48),
     '18 Local wages, tips': (656.5, 514.5, 176, 48),
     '19 Local income tax': (833.5, 514.5, 159, 48),
-    # Additional fields can be added here
 }
 
 app = FastAPI()
@@ -53,9 +52,22 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "https://your-next-js-domain.vercel.app"],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["*"],  # Allow all methods (GET, POST, etc.)
+    allow_headers=["*"],  # Allow all headers
 )
+
+# Logging middleware for debugging purposes
+@app.middleware("http")
+async def log_request(request: Request, call_next):
+    print(f"Request received from origin: {request.headers.get('origin')}")
+    response = await call_next(request)
+    print(f"Response status: {response.status_code}, Headers: {response.headers}")
+    return response
+
+# Preflight handling for CORS
+@app.options("/{path:path}")
+async def preflight_handler():
+    return JSONResponse(content={"message": "CORS preflight handled"}, status_code=200)
 
 # Utility function to resize the image
 def resize_image(image, target_width, target_height):
@@ -163,7 +175,7 @@ async def extract_w2_data(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing the image: {e}")
 
-# Endpoint to handle base64-encoded images (optional)
+# Endpoint to handle base64-encoded images
 @app.post("/extract_base64")
 async def extract_w2_data_base64(base64_image: str = Form(...)):
     try:

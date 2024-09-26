@@ -5,17 +5,18 @@ import re
 from PIL import Image, ImageChops
 import numpy as np
 import requests
-from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Request
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form
+from fastapi.responses import JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 
+# Load environment variable for OCR API key
 OCR_API_KEY = os.getenv('OCR_API_KEY', 'c2a2cadefc88957')
 OCR_API_URL = 'https://api.ocr.space/parse/image'
 
 TEMPLATE_WIDTH = 1100
 TEMPLATE_HEIGHT = 701
 
-# SVG field mapping with their respective coordinates
+# SVG field mapping with coordinates
 svg_mapped_fields = {
     'Employee SSN': (0.5, 0.5, 235, 49),
     'a Employee\'s social security number': (235.5, 1.5, 261, 48),
@@ -52,22 +53,9 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "https://your-next-js-domain.vercel.app"],
     allow_credentials=True,
-    allow_methods=["*"],  # Allow all methods (GET, POST, etc.)
-    allow_headers=["*"],  # Allow all headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
-
-# Logging middleware for debugging purposes
-@app.middleware("http")
-async def log_request(request: Request, call_next):
-    print(f"Request received from origin: {request.headers.get('origin')}")
-    response = await call_next(request)
-    print(f"Response status: {response.status_code}, Headers: {response.headers}")
-    return response
-
-# Preflight handling for CORS
-@app.options("/{path:path}")
-async def preflight_handler():
-    return JSONResponse(content={"message": "CORS preflight handled"}, status_code=200)
 
 # Utility function to resize the image
 def resize_image(image, target_width, target_height):
@@ -170,7 +158,13 @@ async def extract_w2_data(file: UploadFile = File(...)):
         extracted_data = extract_text_from_svg_fields(resized_image)
         cleaned_data = post_process_extracted_data(extracted_data)
 
-        return JSONResponse(content={"extracted_data": cleaned_data})
+        headers = {
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+            "Access-Control-Allow-Headers": "*"
+        }
+
+        return JSONResponse(content={"extracted_data": cleaned_data}, headers=headers)
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing the image: {e}")
@@ -191,7 +185,13 @@ async def extract_w2_data_base64(base64_image: str = Form(...)):
         extracted_data = extract_text_from_svg_fields(resized_image)
         cleaned_data = post_process_extracted_data(extracted_data)
 
-        return JSONResponse(content={"extracted_data": cleaned_data})
+        headers = {
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+            "Access-Control-Allow-Headers": "*"
+        }
+
+        return JSONResponse(content={"extracted_data": cleaned_data}, headers=headers)
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing the image: {e}")

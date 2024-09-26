@@ -167,8 +167,13 @@ async def extract_w2_data(file: UploadFile = File(...)):
 @app.post("/extract_base64")
 async def extract_w2_data_base64(base64_image: str = Form(...)):
     try:
+        # Remove the prefix 'data:image/png;base64,' from the base64 string
         image_data = re.sub('^data:image/.+;base64,', '', base64_image)
+        
+        # Decode the base64 string and open the image
         image = Image.open(io.BytesIO(base64.b64decode(image_data))).convert("RGB")
+        
+        # Call your image processing functions here
         trimmed_image = trim_whitespace(image)
         resized_image = resize_image(trimmed_image, TEMPLATE_WIDTH, TEMPLATE_HEIGHT)
         extracted_data = extract_text_from_svg_fields(resized_image)
